@@ -3,7 +3,7 @@
 .PHONY: build check run
 
 build: build.local
-check: check.imports check.fmt check.lint
+check: check.imports check.fmt check.lint check.test
 
 
 ## Build targets
@@ -30,7 +30,7 @@ LINT_COMMAND=golangci-lint run $(PWD)/deepcopy.go
 LINT_RESULT=$(PWD)/lint/result.txt
 FILES_LIST=$(PWD)/deepcopy.go
 
-.PHONY: check.fmt check.imports check.lint
+.PHONY: check.fmt check.imports check.lint check.test
 
 check.fmt:
 	GO111MODULE=on gofmt -s -w $(FILES_LIST)
@@ -43,3 +43,5 @@ check.lint:
 	@mkdir -p $(PWD)/lint
 	GO111MODULE=on $(LINT_COMMAND) >> $(LINT_RESULT) 2>&1
 
+check.test:
+	GO111MODULE=on go test $(PWD)/

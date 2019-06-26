@@ -2,27 +2,72 @@ package deepcopy
 
 import (
 	. "reflect"
+	"unsafe"
 )
 
-// DeepCopy copies the object provided as input.
-func DeepCopy(obj interface{}) interface{} {
-
-	return deepcopy(ValueOf(obj)).Interface()
+type visit struct {
+	addr unsafe.Pointer
+	typ  Type
 }
 
-func deepcopy(obj Value) Value {
+// DeepCopy copies the object provided as input.
+func DeepCopy(dest, obj interface{}) {
+
+	mem := make(map[visit]*Value)
+	tmp := deepcopy(ValueOf(obj), mem)
+
+	ValueOf(dest).Elem().Set(tmp.Elem())
+}
+
+func limitMap(t Type) bool {
+	switch t.Kind() {
+	case Array, Map, Slice, Struct:
+		return true
+	case Ptr:
+		t = t.Elem()
+		return t.Kind() == Ptr || t.Kind() == Interface
+	}
+	return false
+}
+
+func deepcopy(obj Value, done map[visit]*Value) Value {
 
 	if !obj.IsValid() {
 		return obj
 	}
 
-	n := Zero(obj.Type())
+	var n Value
+	switch obj.Kind() {
+	case Array, Struct, Bool, Complex64, Complex128, Float32, Float64, Int, Int8, Int16, Int32, Int64, Uint, Uint8, Uint16, Uint32, Uint64, String, Interface:
+		n = New(obj.Type()).Elem()
+	case Map:
+		n = MakeMap(obj.Type())
+	case Ptr:
+		n = New(obj.Elem().Type())
+	case Slice:
+		n = MakeSlice(obj.Type(), obj.Len(), obj.Cap())
+	default:
+		panic("unsupported kind")
+	}
+
+	if obj.CanAddr() && limitMap(obj.Type()) {
+
+		key := visit{
+			addr: unsafe.Pointer(obj.UnsafeAddr()),
+			typ:  obj.Type(),
+		}
+
+		if pv, ok := done[key]; ok {
+			return *pv
+		}
+
+		done[key] = &n
+	}
 
 	switch obj.Kind() {
 	case Array:
-		n = Zero(ArrayOf(obj.Len(), obj.Type()))
 		for i := 0; i < obj.Len(); i++ {
-			n.Index(i).Set(deepcopy(obj.Index(i)))
+			n.Index(i).Set(deepcopy(obj.Index(i), done))
 		}
 	case Bool:
 		n.SetBool(obj.Bool())
@@ -33,46 +78,33 @@ func deepcopy(obj Value) Value {
 	case Int, Int8, Int16, Int32, Int64:
 		n.SetInt(obj.Int())
 	case Uint, Uint8, Uint16, Uint32, Uint64:
-		var tmp uint8
-		n2 := ValueOf(&tmp)
-		n = n2.Elem()
 		n.SetUint(obj.Uint())
 	case String:
-		var tmp string
-		n2 := ValueOf(&tmp)
-		n = n2.Elem()
 		n.SetString(obj.String())
 	case Interface:
 		n.Set(obj)
-		n.Elem().Set(deepcopy(obj.Elem()))
+		n.Elem().Set(deepcopy(obj.Elem(), done))
 	case Map:
-		n = MakeMap(obj.Type())
 		for _, k := range obj.MapKeys() {
-			nkey := deepcopy(k)
-			nval := deepcopy(obj.MapIndex(k))
+			nkey := deepcopy(k, done)
+			nval := deepcopy(obj.MapIndex(k), done)
 			n.SetMapIndex(nkey, nval)
 		}
 	case Ptr:
 		if obj.IsNil() {
 			return obj
 		}
-		n = New(obj.Elem().Type())
-		tmp := deepcopy(obj.Elem())
+		tmp := deepcopy(obj.Elem(), done)
 		n.Elem().Set(tmp)
 	case Slice:
-		n = MakeSlice(obj.Type(), obj.Len(), obj.Cap())
 		for i := 0; i < obj.Len(); i++ {
-			n.Index(i).Set(deepcopy(obj.Index(i)))
+			n.Index(i).Set(deepcopy(obj.Index(i), done))
 		}
 	case Struct:
-		/*
-			        var tmp XXXX
-					n = ValueOf(&tmp)
-					for i := 0; i < obj.NumField(); i++ {
-						n.Elem().Field(i).Set(deepcopy(obj.Field(i)))
-					}
-					n = n.Elem()
-		*/
+		for i := 0; i < n.NumField(); i++ {
+			n.Field(i).Set(deepcopy(obj.Field(i), done))
+		}
 	}
+
 	return n
 }
