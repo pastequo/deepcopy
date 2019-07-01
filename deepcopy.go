@@ -10,24 +10,18 @@ type visit struct {
 	typ  Type
 }
 
-// DeepCopy copies the object provided as input.
-func DeepCopy(dest, obj interface{}) {
+// DeepCopy copies recursively the objct given as input.
+//
+// Cycle:
+// They should be preserve. If the cycle starts at the first level of the input, assure that the input is a pointer.
+// Otherwise the cycle won't start at the first level.
+func DeepCopy(input interface{}) interface{} {
+	vObj := ValueOf(input)
 
 	mem := make(map[visit]*Value)
-	tmp := deepcopy(ValueOf(obj), mem)
+	tmp := deepcopy(vObj, mem)
 
-	ValueOf(dest).Elem().Set(tmp.Elem())
-}
-
-func limitMap(t Type) bool {
-	switch t.Kind() {
-	case Array, Map, Slice, Struct:
-		return true
-	case Ptr:
-		t = t.Elem()
-		return t.Kind() == Ptr || t.Kind() == Interface
-	}
-	return false
+	return tmp.Interface()
 }
 
 func deepcopy(obj Value, done map[visit]*Value) Value {
@@ -37,6 +31,7 @@ func deepcopy(obj Value, done map[visit]*Value) Value {
 	}
 
 	var n Value
+
 	switch obj.Kind() {
 	case Array, Struct, Bool, Complex64, Complex128, Float32, Float64, Int, Int8, Int16, Int32, Int64, Uint, Uint8, Uint16, Uint32, Uint64, String, Interface:
 		n = New(obj.Type()).Elem()
@@ -50,10 +45,10 @@ func deepcopy(obj Value, done map[visit]*Value) Value {
 		panic("unsupported kind")
 	}
 
-	if obj.CanAddr() && limitMap(obj.Type()) {
+	if obj.Kind() == Ptr {
 
 		key := visit{
-			addr: unsafe.Pointer(obj.UnsafeAddr()),
+			addr: unsafe.Pointer(obj.Elem().UnsafeAddr()),
 			typ:  obj.Type(),
 		}
 
@@ -94,6 +89,7 @@ func deepcopy(obj Value, done map[visit]*Value) Value {
 		if obj.IsNil() {
 			return obj
 		}
+
 		tmp := deepcopy(obj.Elem(), done)
 		n.Elem().Set(tmp)
 	case Slice:
